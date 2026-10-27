@@ -18,3 +18,10 @@ pub fn resolver_enigma(enigma: Enigma, resposta: String, jogador: Jogador) -> Jo
         False -> jogador
     }
 }
+
+pub fn pegar_objeto(
+  objeto: objeto.Objeto,
+  jogador_atual: jogador.Jogador,
+) -> jogador.Jogador {
+  objeto.interacao(jogador_atual)
+}
