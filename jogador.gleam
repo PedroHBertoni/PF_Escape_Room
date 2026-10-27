@@ -6,3 +6,13 @@ pub type Jogador {
         localizacao: String,
     )
 }
+
+pub fn adicionar_item(
+  jogador: Jogador,
+  item: String,
+) -> Jogador {
+  Jogador(
+    ..jogador,
+    inventario: [item, ..jogador.inventario],
+  )
+}
