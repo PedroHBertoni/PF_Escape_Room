@@ -6,3 +6,7 @@ pub type Objeto {
         estado: String,
     )
 }
+
+pub fn pegar_objeto(jogador_atual: jogador.Jogador) -> jogador.Jogador {
+  jogador.adicionar_item(jogador_atual, obj.nome)
+}
