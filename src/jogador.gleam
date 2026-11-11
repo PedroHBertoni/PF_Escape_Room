@@ -4,7 +4,7 @@ pub type Jogador {
   Jogador(
     nome: String,
     inventario: List(String),
-    pontos_de_vida: Int,
+    vida: Bool,
     localizacao: String,
     pistas_descobertas: List(String),
     enigmas_resolvidos: List(String),
@@ -87,20 +87,11 @@ pub fn registrar_enigma_resolvido(jogador: Jogador, enigma: String) -> Jogador {
   }
 }
 
-// Diminui os pontos de vida do jogador
-pub fn tomar_dano(jogador: Jogador) -> Jogador {
-  Jogador(..jogador, pontos_de_vida: jogador.pontos_de_vida - 1)
+// mata o jogador
+pub fn morrer(jogador: Jogador) -> Jogador {
+  Jogador(..jogador, vida: False)
 }
 
-// Recupera um ponto de vida
-pub fn curar(jogador: Jogador) -> Jogador {
-  Jogador(..jogador, pontos_de_vida: jogador.pontos_de_vida + 1)
-}
-
-// Verifica se o jogador ainda está vivo
-pub fn esta_vivo(jogador: Jogador) -> Bool {
-  jogador.pontos_de_vida > 0
-}
 
 // Atualiza a localização do jogador
 pub fn trocar_localizacao(jogador: Jogador, loc: String) -> Jogador {
