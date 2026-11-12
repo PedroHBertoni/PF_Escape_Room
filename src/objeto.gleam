@@ -19,8 +19,8 @@ pub type Estado {
 // Executa sua interação, desde que *objeto* esteja disponível
 pub fn interagir(objeto: Objeto, jogador: jogador.Jogador) -> jogador.Jogador {
   case objeto.estado {
-    Disponivel -> objeto.interacao(jogador_atual)
-    _ -> jogador_atual
+    Disponivel -> objeto.interacao(jogador)
+    _ -> jogador
   }
 }
 
@@ -31,5 +31,5 @@ pub fn atualizar_estado(objeto: Objeto, novo_estado: Estado) -> Objeto {
 
 // Interação específica para objetos coletáveis
 pub fn pegar_objeto(jogador: jogador.Jogador, obj: String) -> jogador.Jogador {
-  jogador.adicionar_item(jogador_atual, obj_nome)
+  jogador.adicionar_item(jogador, obj)
 }
