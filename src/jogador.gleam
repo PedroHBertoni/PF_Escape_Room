@@ -37,19 +37,16 @@ pub fn adicionar_item(jogador: Jogador, item: String) -> Jogador {
 pub fn gastar_item(jogador: Jogador, item: String) -> Jogador {
   Jogador(
     ..jogador,
-    inventario: remover_primeira_ocorrencia(jogador.inventario, item),
+    inventario: remover(jogador.inventario, item),
   )
 }
 
 // Remove somente a primeira aparição de um item
 fn remover(inventario: List(String), item: String) -> List(String) {
-  case inventario {
-    [] -> []
-    [prim, ..resto] ->
-      case prim == item {
-        True -> resto
-        False -> [prim, ..remover_primeira_ocorrencia(resto, item)]
-      }
+  case inventario, prim == item {
+    [], _ -> []
+    [_, ..resto], True -> resto
+    [prim, ..resto], False -> [prim, ..remover(resto, item)]
   }
 }
 
