@@ -58,7 +58,7 @@ pub fn executar_opcao(
     }
 
     Inventario -> {
-      let itens = list.map(estado.jogador.inventario, fn(x) {x.nome})
+      let itens = estado.jogador.inventario
       let texto = case itens {
         [] -> "Inventario vazio."
         _ -> "Inventario: " <> string.join(itens, ", ")
@@ -85,7 +85,8 @@ pub type Jogo {
   Jogo(
     jogador: Jogador,
     fases: List(Fase),
-    fase_atual: SituacaoJogo,
+    fase_atual: Int,
+    situacao: SituacaoJogo,
   )
 }
 
@@ -96,8 +97,8 @@ pub type SituacaoJogo {
 }
 
 // Mostra as informacoes do Ambiente onde esta o jogador
-pub fn explorar_ambiente(jogo: Jogo) -> String {
-  explorar(jogador.localizacao)
+pub fn explorar_atual(jogo: Jogo) -> String {
+  explorar_ambiente(jogo.jogador.local)
 }
 
 // Define uma nova *situ* pro *jogo*
@@ -113,48 +114,248 @@ pub fn jogo_finalizado(jogo: Jogo) -> Bool {
   }
 }
 
+// Aplica a interacao de um objeto de forma generica
+pub fn interacao(jogo: Jogo, nome_obj: String) -> Result(Jogo, Nil) {
+  case buscar_objeto(jogo.jogador.local, nome_obj) {
+    Ok(obj) -> {
+      Ok(Jogo(..jogo, jogador: jogador.interagir(obj, jogo.jogador)))
+     }
+    Error(Nil) -> Error(Nil)
+  }
+Error(Nil) -> Error(Nil)
+}
+
 ///
 /// fase.gleam
 ///
 pub type Fase {
   Fase(
     id: Int,
+    tempo: Int,
+    descricao: String,
+    ambiente_inicial: String,
     ambientes: List(Ambiente),
-    inventario: List(Objeto),
+    concluida: Bool,
+  )
+}
+
+
+// Mostra a descricao da *fase* e suas opcoes de redirecionamento
+pub fn explorar_fase(fase: Fase) -> String {
+  "==== FASE " <> string.from_int(fase.id) <> " ====  \n \"" <> fase.descricao <> "\""
+}
+
+// Diminui o tempo limite da *fase*
+pub fn gastar_tempo(fase: Fase) -> Fase {
+  Fase(..fase, tempo: fase.tempo - 1)
+}
+
+// Encontra se um ambiente esta entre *ambientes*
+fn buscar_ambiente(ambientes: List(Ambiente), nome: String) -> Result(Ambiente, Nil) {
+  case ambientes {
+    [] -> Error(Nil)
+    [prim, ..resto] ->
+      case prim.nome == nome {
+        True -> Ok(prim)
+        False -> buscar_ambiente(resto, nome)
+      }
+  }
+}
+
+// Descobre se um ambiente com *nome* esta acessivel na *fase*
+pub fn verificar_acessibilidade(fase: Fase, nome: String) -> Result(Bool, Nil) {
+  case buscar_ambiente(fase.ambientes, nome) {
+    Ok(ambiente) -> Ok(ambiente.acessivel)
+    Error(Nil) -> Error(Nil)
+  }
+}
+
+// Atualiza um ambiente da *fase*
+pub fn atualizar_ambiente(fase: Fase, novo_ambiente: Ambiente) -> Result(Fase, Nil) {
+  let novos_ambientes = list.map(
+    fase.ambientes,
+    fn(ambiente) {
+      case ambiente.nome == novo_ambiente.nome {
+        True -> novo_ambiente
+        False -> ambiente
+      }
+    },
+  )
+  Ok(Fase(..fase, ambientes: novos_ambientes))
+}
+
+pub fn concluir_fase(fase: Fase) -> Fase {
+  Fase(..fase, concluida: True)
+}
+
+// 
+// ambiente.gleam
+//
+pub type Ambiente {
+  Ambiente(
+    nome: String,
+    descricao: String,
+    objetos: List(Objeto),
+    saidas: List(String),
+    acessivel: Bool,
+  )
+}
+
+// Enumera cada string de uma *lista*
+fn enumera(lista: List(String), index: Int) -> List(String) {
+  case lista {
+    [] -> []
+    [prim, ..resto] -> ["  " <> string.from_int(index) <> ". " <> prim] ++ enumera(resto, index + 1)
+  }
+}
+
+// Apresenta as informacoes gerais de um *ambi*
+pub fn explorar_ambiente(ambiente: Ambiente) -> String {
+  let obj_descricoes = list.map(ambiente.objetos, fn(obj) {objeto.examinar(obj)})
+  let obj_formatados = case obj_descricoes {
+    [] -> "Nenhum objeto aparente."
+    _ -> " \n Objetos: " <> string.join(enumera(obj_descricoes, 1), "\n")
+  }
+  let saidas_formatados = enumera(ambiente.saidas, 1)
+  string.join(
+    ["---- " <> ambiente.nome <> " ----",
+    "\"" <> ambiente.descricao <> "\"",
+    obj_formatados,
+    " \n Saidas: " <> string.join(saidas_formatados, "\n")], "\n",
+  )
+}
+
+// Retorna um objeto com *nome* se esse está presente
+fn buscar_objeto(lista: List(Objeto), nome: String) -> Result(Objeto, Nil) {
+  case lista {
+    [] -> Error(Nil)
+    [prim, ..resto] ->
+      case prim.nome == nome {
+        True -> Ok(prim)
+        False -> buscar_objeto(resto, nome)
+      }
+  }
+}
+
+pub fn inverter_acessibilidade(ambiente: Ambiente) -> Ambiente {
+  Ambiente(..ambiente, acessivel: not ambiente.acessivel)
+}
+
+//
+// objeto.gleam
+//
+pub type Objeto {
+  Objeto(
+    nome: String,
+    descricao: String,
+    interacao: fn(Jogador) -> Jogador,
+    estado: Estado,
+  )
+}
+
+pub type Estado {
+  Disponivel
+  Indisponivel
+  Quebrado(ferramenta: String, novo_estado: Estado)
+  Coletavel
+  Coletado
+}
+
+// Retorna a descricao de *obj* para o jogador
+pub fn examinar(obj: Objeto) -> String {
+  obj.descricao
+  <> case obj.estado {
+    Disponivel -> " - Esse objeto pode ser útil."
+    Indisponivel -> " - Ja foi utilizado."
+    Quebrado(_, _) -> " - Precisa ser consertado."
+    Coletavel -> " - Pode ser coletado."
+    Coletado -> " - Presente no inventario."
+  }
+}
+
+// Atualiza o estado de um *obj*
+pub fn atualizar_estado(obj: Objeto, novo_estado: Estado) -> Objeto {
+  Objeto(..obj, estado: novo_estado)
+}
+
+// Executa a interacao definida pelo *obj*
+pub fn interagir(obj: Objeto, player: Jogador) -> Jogador {
+  obj.interacao(player)
+}
+
+// Interação específica
+// Coloca um *obj* no inventario do *player*
+pub fn acao_coletar(nome_obj: String) -> fn(Jogador) -> Jogador {
+  fn(player) { adicionar_obj(player, nome_obj) }
+}
+
+// Cria uma funcao de leitura de mensagem com *pista*
+pub fn acao_ler_mensagem(pista: String) -> fn(Jogador) -> Jogador {
+  fn(player) { adicionar_pista(player, pista) }
+}
+
+// Interação específica
+// Faz um *obj* quebrado se tornar Disponivel
+pub fn consertar(obj: Objeto, player: Jogador) -> Objeto {
+  case obj.estado {
+    Quebrado(ferramenta, novo_estado) -> {
+      case possui_obj(player, ferramenta) {
+        True -> atualizar_estado(obj, novo_estado)
+        False -> obj
+      }
+    }
+    _ -> obj
+  }
+}
+
+// 
+// jogador.gleam
+//
+pub type Jogador {
+  Jogador(
+    nome: String,
+    local: String,
+    inventario: List(String),
     pistas: List(String),
   )
 }
 
-// Adiciona um *obj* ao inventario
-pub fn adicionar_obj(fase: Fase, obj: Objeto) -> Fase {
-  Fase(..fase, inventario: list.append(fase.inventario, [obj]))
+// Adiciona um *obj*, pelo seu nome, ao inventario
+pub fn adicionar_obj(player: Jogador, obj: String) -> Jogador {
+  case possui_obj(player, obj) {
+    True -> player
+    False ->
+      Jogador(..player, inventario: list.append(player.inventario, [obj]))
+  }
 }
 
-// Remove *obj* do inventario
-pub fn gastar_obj(fase: Fase, obj: String) -> Fase {
-  Fase(..fase, inventario: list.filter(fase.inventario, fn(x) {x.nome != obj}))
+// Remove *obj*, pelo seu nome, do inventario
+pub fn gastar_obj(player: Jogador, obj: String) -> Jogador {
+  Jogador(
+    ..player,
+    inventario: list.filter(player.inventario, fn(x) { x != obj }),
+  )
 }
 
 // Registra uma *pista* descoberta
-pub fn adicionar_pista(fase: Fase, pista: String) -> Fase {
-  case possui_pista(fase, pista) {
-    True -> fase
-    False -> Fase(..fase, pistas: list.append(jogo.pistas, [pista]))
+pub fn adicionar_pista(player: Jogador, pista: String) -> Jogador {
+  case possui_pista(player, pista) {
+    True -> player
+    False -> Jogador(..player, pistas: list.append(player.pistas, [pista]))
   }
-
 }
 
-// Verifica se o *obj* ja foi coletado
-pub fn possui_obj(fase: Fase, obj: String) -> Bool {
-  lista_contem(list.map(fase.inventario, fn(x) {x.nome}), obj)
+// Verifica se o *player* possui determinado *obj*
+pub fn possui_obj(player: Jogador, obj: String) -> Bool {
+  lista_contem(player.inventario, obj)
 }
 
-// Verifica se a *pista* ja foi vista
-pub fn possui_pista(fase: Fase, pista: String) -> Bool {
-  lista_contem(fase.pistas, pista)
+// Verifica se o *player* ja descobriu determinada *pista*
+pub fn possui_pista(player: Jogador, pista: String) -> Bool {
+  lista_contem(player.pistas, pista)
 }
 
-// Verifica se *nome* aparece em uma *lista*
+// Verifica se um elemento aparece em uma lista
 fn lista_contem(lista: List(String), nome: String) -> Bool {
   case lista {
     [] -> False
@@ -166,111 +367,11 @@ fn lista_contem(lista: List(String), nome: String) -> Bool {
   }
 }
 
-// Aplica a interacao de um objeto de forma generica
-pub fn interacao(jogo: Jogo, nome_obj: Objeto) -> Result(Fase, Nil) {
-  case buscar_objeto(jogo.jogador.localizacao, nome_obj) {
-    Ok(obj) -> {
-      Ok(Jogo(..estado, objeto: objeto.interagir(obj, estado.jogador)))
-    }
-    Error(Nil) -> Error(Nil)
-  }
-Error(Nil) -> Error(Nil)
+// Atualiza a localizacao do *player*
+pub fn mudar_local(player: Jogador, novo_loc: String) -> Jogador {
+  Jogador(..player, local: novo_loc)
 }
 
-// 
-// ambiente.gleam
-//
-pub type Ambiente {
-  Ambiente(
-    nome: String,
-    descricao: String,
-    objetos: List(Objeto),
-    resolvido: Bool,
-  )
-}
-
-// Apresenta as informacoes gerais de um *ambi*
-pub fn explorar(ambiente: Ambiente) -> String {
-  let objetos_nomes = list.map(salas, fn(x) {x.nome})
-  string.join([nome, descricao, ..salas_nomes], "\n")
-}
-
-// Retorna um tipo com *nome* se esse está presente
-fn buscar(lista: List(a), nome: String) -> Result(a, Nil) {
-  case lista {
-    [] -> Error(Nil)
-    [prim, ..resto] -> case prim.nome == nome {
-      True -> Ok(prim)
-      False -> buscar(resto, nome)
-    }
-  }
-}
-
-//
-// objeto.gleam
-//
-pub type Objeto {
-  Objeto(
-    nome: String,
-    descricao: String,
-    interacao: AcaoObjeto,
-    estado: Estado,
-  )
-}
-
-pub type Estado {
-  Disponivel
-  Indisponivel
-  Coletavel
-  Coletado
-}
-
-pub type AcaoObjeto {
-  Coletar(interacao: fn(Objeto) -> Objeto = pegar_objeto())
-  RevelarPista(pista: String)
-  AbrirPassagem
-  Nenhuma
-}
-
-// Retorna a descricao de *obj* para o jogador
-pub fn examinar(obj: Objeto) -> String {
-  obj.descricao
-}
-
-// Atualiza o estado de um *obj*
-pub fn atualizar_estado(obj: Objeto, novo_estado: Estado) -> Objeto {
-  Objeto(..obj, estado: novo_estado)
-}
-
-// Interação específica
-// Coloca um *obj* no inventario do *player*
-pub fn pegar_objeto(obj: Objeto) -> Jogador {
-  jogador.adicionar_item(player, obj)
-}
-
-// Interação específica
-// Faz um *obj* quebrado se tornar Disponivel
-fn consertar(obj: Objeto) -> Objeto {
-  atualizar_estado(obj, Disponivel)
-}
-
-// 
-// jogador.gleam
-//
-pub type Jogador {
-  Jogador(
-    nome: String,
-    vida: Int,
-    localizacao: Ambiente,
-  )
-}
-
-// Tira a vida do *player*
-pub fn gastar_tempo(player: Jogador) -> Jogador {
-  Jogador(..player, vida: player.vida - 1)
-}
-
-// Atualiza a localização do *player* para *loc*
-fn trocar_localizacao(player: Jogador, loc: Ambiente) -> Jogador {
-  Jogador(..player, localizacao: loc)
+pub fn reset_progresso(player: Jogador) -> Jogador {
+  Jogador(..player, inventario: [], pistas: [])
 }
