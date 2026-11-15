@@ -26,7 +26,7 @@ pub fn jogador_examples() {
   let player_movido = mudar_local(player, "Cabine")
   check.eq(player_movido.local, "Cabine")
 
-  let player = reset_total(player_com_obj)
+  let player = reset_progresso(player_com_obj)
   check.eq(player.inventario, [])
   check.eq(player.pistas, [])
 }
