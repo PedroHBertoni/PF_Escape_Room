@@ -96,9 +96,31 @@ pub type SituacaoJogo {
   Derrota
 }
 
+pub type ErroJogo {
+  JogoEncerrado
+  FaseNaoEncontrada
+  FaseNaoConcluida
+  AmbienteNaoEncontrado
+  AmbienteInacessivel
+  SaidaNaoConectada
+  ObjetoNaoEncontrado
+  ObjetoIndisponivel
+  FerramentaAusente(nome: String)
+  AmbienteInicialInvalido
+}
+
 // Mostra as informacoes do Ambiente onde esta o jogador
-pub fn explorar_atual(jogo: Jogo) -> String {
-  explorar_ambiente(jogo.jogador.local)
+pub fn explorar_atual(jogo: Jogo) -> Result(String, ErroJogo) {
+  case obter_ambiente_atual(jogo) {
+    Error(erro) -> Error(erro)
+
+    Ok(ambiente) -> {
+      case ambiente.acessivel {
+        True -> Ok(ambiente.explorar_ambiente(ambiente))
+        False -> Error(AmbienteInacessivel)
+      }
+    }
+  }
 }
 
 // Define uma nova *situ* pro *jogo*
@@ -122,7 +144,399 @@ pub fn interacao(jogo: Jogo, nome_obj: String) -> Result(Jogo, Nil) {
      }
     Error(Nil) -> Error(Nil)
   }
-Error(Nil) -> Error(Nil)
+}
+
+pub fn obter_fase_atual(jogo: Jogo) -> Result(Fase, ErroJogo) {
+  case buscar_fase_lista(jogo.fases, jogo.fase_atual) {
+    Ok(fase) -> Ok(fase)
+    Error(Nil) -> Error(FaseNaoEncontrada)
+  }
+}
+
+pub fn obter_ambiente_atual(jogo: Jogo) -> Result(Ambiente, ErroJogo) {
+  case obter_fase_atual(jogo) {
+    Error(erro) -> Error(erro)
+
+    Ok(fase) -> {
+      case fase.buscar_ambiente(fase, jogo.jogador.local) {
+        Ok(ambiente) -> Ok(ambiente)
+        Error(Nil) -> Error(AmbienteNaoEncontrado)
+      }
+    }
+  }
+}
+
+fn buscar_fase_lista(
+  fases: List(Fase),
+  id: Int,
+) -> Result(Fase, Nil) {
+  case fases {
+    [] -> Error(Nil)
+    [prim, ..resto] ->
+      case prim.id == id {
+        True -> Ok(prim)
+        False -> buscar_fase_lista(resto, id)
+      }
+  }
+}
+
+pub fn mover_jogador(
+  jogo: Jogo,
+  destino: String,
+) -> Result(Jogo, ErroJogo) {
+  case jogo.situacao {
+    Vitoria -> Error(JogoEncerrado)
+    Derrota -> Error(JogoEncerrado)
+
+    EmAndamento -> {
+      case obter_fase_atual(jogo) {
+        Error(erro) -> Error(erro)
+
+        Ok(fase) -> {
+          case obter_ambiente_atual(jogo) {
+            Error(erro) -> Error(erro)
+
+            Ok(ambiente_atual) -> {
+              case contem_nome(ambiente_atual.saidas, destino) {
+                False -> Error(SaidaNaoConectada)
+
+                True -> {
+                  case fase.buscar_ambiente(fase, destino) {
+                    Error(Nil) -> Error(AmbienteNaoEncontrado)
+
+                    Ok(ambiente_destino) -> {
+                      case ambiente_destino.acessivel {
+                        False -> Error(AmbienteInacessivel)
+
+                        True -> {
+                          let jogador_atualizado =
+                            jogador.mudar_local(jogo.jogador, destino)
+
+                          Ok(Jogo(
+                            ..jogo,
+                            jogador: jogador_atualizado,
+                          ))
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+fn contem_nome(lista: List(String), nome: String) -> Bool {
+  case lista {
+    [] -> False
+    [prim, ..resto] ->
+      case prim == nome {
+        True -> True
+        False -> contem_nome(resto, nome)
+      }
+  }
+}
+
+fn salvar_fase_no_jogo(jogo: Jogo, nova_fase: Fase) -> Jogo {
+  let novas_fases = list.map(
+    jogo.fases,
+    fn(fase) {
+      case fase.id == nova_fase.id {
+        True -> nova_fase
+        False -> fase
+      }
+    },
+  )
+
+  Jogo(..jogo, fases: novas_fases)
+}
+
+fn salvar_interacao(
+  jogo: Jogo,
+  fase_atual: Fase,
+  ambiente_atual: Ambiente,
+  novo_objeto: Objeto,
+  novo_jogador: Jogador,
+) -> Result(Jogo, ErroJogo) {
+  case ambiente.atualizar_objeto(ambiente_atual, novo_objeto) {
+    Error(Nil) -> Error(ObjetoNaoEncontrado)
+
+    Ok(novo_ambiente) -> {
+      case fase.atualizar_ambiente(fase_atual, novo_ambiente) {
+        Error(Nil) -> Error(AmbienteNaoEncontrado)
+
+        Ok(nova_fase) -> {
+          let jogo_atualizado =
+            salvar_fase_no_jogo(jogo, nova_fase)
+
+          Ok(Jogo(
+            ..jogo_atualizado,
+            jogador: novo_jogador,
+          ))
+        }
+      }
+    }
+  }
+}
+
+pub fn interagir_objeto(
+  jogo: Jogo,
+  nome_obj: String,
+) -> Result(Jogo, ErroJogo) {
+  case jogo.situacao {
+    Vitoria -> Error(JogoEncerrado)
+    Derrota -> Error(JogoEncerrado)
+
+    EmAndamento -> {
+      case obter_fase_atual(jogo) {
+        Error(erro) -> Error(erro)
+
+        Ok(fase_atual) -> {
+          case fase.buscar_ambiente(fase_atual, jogo.jogador.local) {
+            Error(Nil) -> Error(AmbienteNaoEncontrado)
+
+            Ok(ambiente_atual) -> {
+              case ambiente.buscar_objeto(ambiente_atual, nome_obj) {
+                Error(Nil) -> Error(ObjetoNaoEncontrado)
+
+                Ok(obj) -> {
+                  case ambiente_atual.acessivel {
+                    False -> Error(AmbienteInacessivel)
+
+                    True ->
+                      case obj.estado {
+                        Coletavel -> {
+                          let novo_jogador =
+                            objeto.interagir(obj, jogo.jogador)
+
+                          let novo_objeto =
+                            objeto.atualizar_estado(obj, Coletado)
+
+                          salvar_interacao(
+                            jogo,
+                            fase_atual,
+                            ambiente_atual,
+                            novo_objeto,
+                            novo_jogador,
+                          )
+                        }
+
+                        Disponivel -> {
+                          let novo_jogador =
+                            objeto.interagir(obj, jogo.jogador)
+
+                          let novo_objeto =
+                            objeto.atualizar_estado(obj, Indisponivel)
+
+                          salvar_interacao(
+                            jogo,
+                            fase_atual,
+                            ambiente_atual,
+                            novo_objeto,
+                            novo_jogador,
+                          )
+                        }
+
+                        Quebrado(ferramenta, _) -> {
+                          case jogador.possui_obj(jogo.jogador, ferramenta) {
+                            False -> Error(FerramentaAusente(ferramenta))
+
+                            True -> {
+                              let novo_objeto =
+                                objeto.consertar(obj, jogo.jogador)
+
+                              salvar_interacao(
+                                jogo,
+                                fase_atual,
+                                ambiente_atual,
+                                novo_objeto,
+                                jogo.jogador,
+                              )
+                            }
+                          }
+                        }
+
+                        Indisponivel -> Error(ObjetoIndisponivel)
+                        Coletado -> Error(ObjetoIndisponivel)
+                      }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+pub fn alterar_acessibilidade(
+  jogo: Jogo,
+  nome_ambiente: String,
+  novo_estado: Bool,
+) -> Result(Jogo, ErroJogo) {
+  case jogo.situacao {
+    Vitoria -> Error(JogoEncerrado)
+    Derrota -> Error(JogoEncerrado)
+
+    EmAndamento -> {
+      case obter_fase_atual(jogo) {
+        Error(erro) -> Error(erro)
+
+        Ok(fase_atual) -> {
+          case fase.buscar_ambiente(fase_atual, nome_ambiente) {
+            Error(Nil) -> Error(AmbienteNaoEncontrado)
+
+            Ok(ambiente) -> {
+              let novo_ambiente =
+                Ambiente(..ambiente, acessivel: novo_estado)
+
+              case fase.atualizar_ambiente(fase_atual, novo_ambiente) {
+                Error(Nil) -> Error(AmbienteNaoEncontrado)
+
+                Ok(nova_fase) ->
+                  Ok(salvar_fase_no_jogo(jogo, nova_fase))
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+pub fn desbloquear_ambiente(
+  jogo: Jogo,
+  nome: String,
+) -> Result(Jogo, ErroJogo) {
+  alterar_acessibilidade(jogo, nome, True)
+}
+
+pub fn bloquear_ambiente(
+  jogo: Jogo,
+  nome: String,
+) -> Result(Jogo, ErroJogo) {
+  alterar_acessibilidade(jogo, nome, False)
+}
+
+pub fn gastar_tempo_atual(jogo: Jogo) -> Result(Jogo, ErroJogo) {
+  case jogo.situacao {
+    Vitoria -> Error(JogoEncerrado)
+    Derrota -> Error(JogoEncerrado)
+
+    EmAndamento -> {
+      case obter_fase_atual(jogo) {
+        Error(erro) -> Error(erro)
+
+        Ok(fase_atual) -> {
+          let nova_fase = fase.gastar_tempo(fase_atual)
+          let novo_jogo = salvar_fase_no_jogo(jogo, nova_fase)
+
+          case nova_fase.tempo == 0 {
+            True -> Ok(altera_situacao(novo_jogo, Derrota))
+            False -> Ok(novo_jogo)
+          }
+        }
+      }
+    }
+  }
+}
+
+pub fn concluir_fase_atual(jogo: Jogo) -> Result(Jogo, ErroJogo) {
+  case jogo.situacao {
+    Vitoria -> Error(JogoEncerrado)
+    Derrota -> Error(JogoEncerrado)
+
+    EmAndamento -> {
+      case obter_fase_atual(jogo) {
+        Error(erro) -> Error(erro)
+
+        Ok(fase_atual) -> {
+          let nova_fase = fase.concluir_fase(fase_atual)
+          Ok(salvar_fase_no_jogo(jogo, nova_fase))
+        }
+      }
+    }
+  }
+}
+
+fn buscar_proxima_fase(
+  fases: List(Fase),
+  id_atual: Int,
+) -> Result(Fase, Nil) {
+  case fases {
+    [] -> Error(Nil)
+
+    [prim, ..resto] ->
+      case prim.id == id_atual {
+        True -> {
+          case resto {
+            [] -> Error(Nil)
+            [proxima, ..] -> Ok(proxima)
+          }
+        }
+
+        False -> buscar_proxima_fase(resto, id_atual)
+      }
+  }
+}
+
+pub fn avancar_fase(jogo: Jogo) -> Result(Jogo, ErroJogo) {
+  case jogo.situacao {
+    Vitoria -> Error(JogoEncerrado)
+    Derrota -> Error(JogoEncerrado)
+
+    EmAndamento -> {
+      case obter_fase_atual(jogo) {
+        Error(erro) -> Error(erro)
+
+        Ok(fase_atual) -> {
+          case fase_atual.concluida {
+            False -> Error(FaseNaoConcluida)
+
+            True -> {
+              case buscar_proxima_fase(jogo.fases, fase_atual.id) {
+                Error(Nil) ->
+                  Ok(altera_situacao(jogo, Vitoria))
+
+                Ok(proxima_fase) -> {
+                  case fase.buscar_ambiente(
+                    proxima_fase,
+                    proxima_fase.ambiente_inicial,
+                  ) {
+                    Error(Nil) -> Error(AmbienteInicialInvalido)
+
+                    Ok(ambiente_inicial) -> {
+                      case ambiente_inicial.acessivel {
+                        False -> Error(AmbienteInicialInvalido)
+
+                        True -> {
+                          let novo_jogador = jogador.mudar_local(
+                            jogo.jogador,
+                            proxima_fase.ambiente_inicial,
+                          )
+
+                          Ok(Jogo(
+                            ..jogo,
+                            jogador: novo_jogador,
+                            fase_atual: proxima_fase.id,
+                          ))
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 ///
@@ -147,7 +561,10 @@ pub fn explorar_fase(fase: Fase) -> String {
 
 // Diminui o tempo limite da *fase*
 pub fn gastar_tempo(fase: Fase) -> Fase {
-  Fase(..fase, tempo: fase.tempo - 1)
+  case fase.tempo > 0 {
+    True -> Fase(..fase, tempo: fase.tempo - 1)
+    False -> fase
+  }
 }
 
 // Encontra se um ambiente esta entre *ambientes*
