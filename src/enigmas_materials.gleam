@@ -1,5 +1,24 @@
 ///enigma 2
-let 
+let peDeCabra = Objeto("Pé-de-cabra", "Uma ferramenta pesada de metal maciço", acao_coletar("Pé-de-cabra"), Disponivel)
+
+let fax = Objeto("Aparelho Fax", "Um aparelho eletrônico muito antigo. Nele tem um fio solto que está encharcado pela água", consertar(), Quebrado())
+
+let luvaDeBorracha = Objeto("Luvas de Borracha", "Um par de luvas de borracha deixados pelo serviço de limpeza em um canto da sala.", acao_coletar("Luvas de Borracha"), Disponível)
+
+///portas
+let porta_madeira = Porta(
+  nome: "Porta de madeira",
+  descricao: "Uma porta de madeira bastante resistente.",
+  ferramenta_necessaria: "pe-de-cabra",
+  estado: Trancada,
+)
+
+let porta_metal = Porta(
+  nome: "Porta de metal",
+  descricao: "Uma porta de metal com uma fechadura antiga.",
+  ferramenta_necessaria: "chave",
+  estado: Trancada,
+)
 
 ///enigma 3
 /// 
