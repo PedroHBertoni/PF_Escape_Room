@@ -74,3 +74,30 @@ pub fn objeto_examples() {
   let player_apos_leitura = interagir(mensagem, player)
   check.eq(player_apos_leitura.pistas, ["Verifique o armario da plataforma."])
 }
+
+///
+/// 
+/// 
+pub fn ambiente_examples() {
+  let pe_de_cabra =
+    Objeto(
+      nome: "Pe de cabra",
+      descricao: "Uma ferramenta.",
+      interacao: acao_coletar("Pe de cabra"),
+      estado: Coletavel,
+    )
+
+  let ambiente =
+    Ambiente(
+      nome: "Plataforma",
+      descricao: "Uma plataforma alagada.",
+      objetos: [pe_de_cabra],
+      saidas: ["Secretaria"],
+      acessivel: True,
+    )
+
+  check.eq(string.contains(explorar_ambiente(ambiente), "Plataforma"), True)
+  check.eq(buscar_objeto(ambiente, "Pe de cabra"), Ok(pe_de_cabra))
+  check.eq(buscar_objeto(ambiente, "Chave"), Error(Nil))
+  check.eq(inverter_acessibilidade(ambiente).acessivel, False)
+}
