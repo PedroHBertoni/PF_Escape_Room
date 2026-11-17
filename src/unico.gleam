@@ -1,6 +1,7 @@
 import gleam/io
 import gleam/list
 import gleam/string
+import gleam/option.{type Option, None, Some}
 
 // 
 // menus.gleam
@@ -56,8 +57,30 @@ pub fn exit() -> MainMenu {
   Sair
 }
 
-// Executa a opção escolhida
 pub fn executar_opcao(
+  estado: Jogo,
+  opcao: MainMenu,
+) -> Result(#(Jogo, ResultadoMenu), ErroJogo) {
+  case estado.situacao {
+    Vitoria ->
+      case opcao {
+        Sair -> Ok(#(estado, Encerrar))
+        _ -> Error(JogoEncerrado)
+      }
+
+    Derrota ->
+      case opcao {
+        Sair -> Ok(#(estado, Encerrar))
+        _ -> Error(JogoEncerrado)
+      }
+
+    EmAndamento ->
+      executar_opcao_em_andamento(estado, opcao)
+  }
+}
+
+// Executa a opção escolhida
+pub fn executar_opcao_em_andamento(
   estado: Jogo,
   opcao: MainMenu,
 ) -> Result(#(Jogo, ResultadoMenu), ErroJogo) {
@@ -94,10 +117,15 @@ pub fn executar_opcao(
     Mover(destino) -> {
       case mover_jogador(estado, destino) {
         Ok(novo_jogo) -> {
-          Ok(#(
-            novo_jogo,
-            Mostrar("Voce se deslocou para " <> destino <> "."),
-          ))
+          let mensagem = case novo_jogo.jogador.local == destino {
+            True ->
+              "Voce se deslocou para " <> destino <> "."
+
+            False ->
+              "O ambiente esta bloqueado! Voce nao conseguiu entrar."
+          }
+
+          finalizar_acao(novo_jogo, mensagem)
         }
 
         Error(erro) -> Error(erro)
@@ -106,23 +134,13 @@ pub fn executar_opcao(
 
     Interagir(nome_obj) -> {
       case interagir_objeto(estado, nome_obj) {
-        Ok(novo_jogo) -> {
-          case novo_jogo.situacao {
-            Derrota ->
-              Ok(#(
-                novo_jogo,
-                Mostrar("O tempo acabou! Voce nao conseguiu concluir a fase."),
-              ))
-
-            _ ->
-              Ok(#(
-                novo_jogo,
-                Mostrar("Interacao com " <> nome_obj <> " realizada."),
-              ))
-          }
-        }
-
         Error(erro) -> Error(erro)
+
+        Ok(#(novo_jogo, resultado)) -> {
+          let mensagem = descrever_resultado_interacao(resultado)
+
+          finalizar_acao(novo_jogo, mensagem)
+        }
       }
     }
 
@@ -164,6 +182,55 @@ pub fn descrever_erro(erro: ErroJogo) -> String {
   }
 }
 
+pub fn descrever_resultado_interacao(
+  resultado: ResultadoInteracao,
+) -> String {
+  case resultado {
+    InteracaoConcluida ->
+      "Voce realizou a interacao com sucesso."
+
+    InteracaoSemEfeito(motivo) ->
+      motivo
+
+    InteracaoComErro(erro) ->
+      descrever_erro(erro)
+  }
+}
+
+fn finalizar_acao(
+  jogo: Jogo,
+  mensagem: String,
+) -> Result(#(Jogo, ResultadoMenu), ErroJogo) {
+  case jogo.situacao {
+    Derrota ->
+      Ok(#(
+        jogo,
+        Mostrar("O tempo acabou! Voce perdeu o jogo."),
+      ))
+
+    Vitoria ->
+      Ok(#(
+        jogo,
+        Mostrar("Parabens! Voce venceu o jogo!"),
+      ))
+
+    EmAndamento -> {
+      case verificar_progresso(jogo) {
+        Error(erro) -> Error(erro)
+
+        Ok(#(novo_jogo, None)) ->
+          Ok(#(novo_jogo, Mostrar(mensagem)))
+
+        Ok(#(novo_jogo, Some(mensagem_progresso))) ->
+          Ok(#(
+            novo_jogo,
+            Mostrar(mensagem <> "\n" <> mensagem_progresso),
+          ))
+      }
+    }
+  }
+}
+
 // 
 // jogo.gleam
 // 
@@ -193,6 +260,24 @@ pub type ErroJogo {
   ObjetoIndisponivel
   FerramentaAusente(nome: String)
   AmbienteInicialInvalido
+}
+
+pub type ResultadoInteracao {
+  InteracaoConcluida
+  InteracaoSemEfeito(motivo: String)
+  InteracaoComErro(erro: ErroJogo)
+}
+
+fn finalizar_interacao(
+  resultado: Result(Jogo, ErroJogo),
+) -> Result(#(Jogo, ResultadoInteracao), ErroJogo) {
+  case resultado {
+    Ok(novo_jogo) ->
+      Ok(#(novo_jogo, InteracaoConcluida))
+
+    Error(erro) ->
+      Error(erro)
+  }
 }
 
 // Mostra as informacoes do Ambiente onde esta o jogador
@@ -282,7 +367,7 @@ pub fn mover_jogador(
 
                     Ok(ambiente_destino) -> {
                       case ambiente_destino.acessivel {
-                        False -> Error(AmbienteInacessivel)
+                        False -> registrar_acao(jogo)
 
                         True -> {
                           let jogador_atualizado =
@@ -339,6 +424,7 @@ fn salvar_interacao(
   ambiente_atual: Ambiente,
   novo_objeto: Objeto,
   novo_jogador: Jogador,
+  ambiente_desbloquear: Option(String),
 ) -> Result(Jogo, ErroJogo) {
   case atualizar_objeto(ambiente_atual, novo_objeto) {
     Error(Nil) -> Error(ObjetoNaoEncontrado)
@@ -351,22 +437,37 @@ fn salvar_interacao(
           let jogo_atualizado =
             salvar_fase_no_jogo(jogo, nova_fase)
 
-          let novo_jogo = Jogo(
+          let jogo_atualizado = Jogo(
             ..jogo_atualizado,
             jogador: novo_jogador,
           )
 
-          registrar_acao(novo_jogo)
+          let jogo_atualizado = case ambiente_desbloquear {
+            None -> Ok(jogo_atualizado)
+
+            Some(nome) ->
+              alterar_acessibilidade(
+                jogo_atualizado,
+                nome,
+                True,
+              )
+          }
+
+          case jogo_atualizado {
+            Error(erro) -> Error(erro)
+            Ok(novo_jogo) -> registrar_acao(novo_jogo)
+          }
         }
       }
     }
   }
 }
 
+
 pub fn interagir_objeto(
   jogo: Jogo,
   nome_obj: String,
-) -> Result(Jogo, ErroJogo) {
+) -> Result(#(Jogo, ResultadoInteracao), ErroJogo) {
   case jogo.situacao {
     Vitoria -> Error(JogoEncerrado)
     Derrota -> Error(JogoEncerrado)
@@ -396,12 +497,15 @@ pub fn interagir_objeto(
                           let novo_objeto =
                             objeto.atualizar_estado(obj, Coletado)
 
-                          salvar_interacao(
-                            jogo,
-                            fase_atual,
-                            ambiente_atual,
-                            novo_objeto,
-                            novo_jogador,
+                          finalizar_interacao(
+                            salvar_interacao(
+                              jogo,
+                              fase_atual,
+                              ambiente_atual,
+                              novo_objeto,
+                              novo_jogador,
+                              None,
+                            ),
                           )
                         }
 
@@ -412,29 +516,105 @@ pub fn interagir_objeto(
                           let novo_objeto =
                             objeto.atualizar_estado(obj, Indisponivel)
 
-                          salvar_interacao(
-                            jogo,
-                            fase_atual,
-                            ambiente_atual,
-                            novo_objeto,
-                            novo_jogador,
+                          finalizar_interacao(
+                            salvar_interacao(
+                              jogo,
+                              fase_atual,
+                              ambiente_atual,
+                              novo_objeto,
+                              novo_jogador,
+                              None,
+                            ),
                           )
                         }
 
                         Quebrado(ferramenta, _) -> {
-                          case jogador.possui_obj(jogo.jogador, ferramenta) {
-                            False -> Error(FerramentaAusente(ferramenta))
+                          case jogador.possui_obj(
+                            jogo.jogador,
+                            ferramenta,
+                          ) {
+                            False ->
+                              registrar_falha_interacao(
+                                jogo,
+                                FerramentaAusente(ferramenta),
+                              )
 
                             True -> {
                               let novo_objeto =
                                 objeto.consertar(obj, jogo.jogador)
 
-                              salvar_interacao(
+                              finalizar_interacao(
+                                salvar_interacao(
+                                  jogo,
+                                  fase_atual,
+                                  ambiente_atual,
+                                  novo_objeto,
+                                  jogo.jogador,
+                                  None,
+                                ),
+                              )
+                            }
+                          }
+                        }
+
+                        RequerItem(item, novo_estado) -> {
+                          case jogador.possui_obj(
+                            jogo.jogador,
+                            item,
+                          ) {
+                            False ->
+                              registrar_falha_interacao(
                                 jogo,
-                                fase_atual,
-                                ambiente_atual,
-                                novo_objeto,
-                                jogo.jogador,
+                                FerramentaAusente(item),
+                              )
+
+                            True -> {
+                              let novo_jogador =
+                                objeto.interagir(obj, jogo.jogador)
+
+                              let novo_objeto =
+                                objeto.atualizar_estado(
+                                  obj,
+                                  novo_estado,
+                                )
+
+                              finalizar_interacao(
+                                salvar_interacao(
+                                  jogo,
+                                  fase_atual,
+                                  ambiente_atual,
+                                  novo_objeto,
+                                  novo_jogador,
+                                  None,
+                                ),
+                              )
+                            }
+                          }
+                        }
+                        DesbloqueiaAmbiente(item, ambiente, novo_estado) -> {
+                          case jogador.possui_obj(jogo.jogador, item) {
+                            False ->
+                              registrar_falha_interacao(
+                                jogo,
+                                FerramentaAusente(item),
+                              )
+
+                            True -> {
+                              let novo_jogador =
+                                objeto.interagir(obj, jogo.jogador)
+
+                              let novo_objeto =
+                                objeto.atualizar_estado(obj, novo_estado)
+
+                              finalizar_interacao(
+                                salvar_interacao(
+                                  jogo,
+                                  fase_atual,
+                                  ambiente_atual,
+                                  novo_objeto,
+                                  novo_jogador,
+                                  Some(ambiente),
+                                ),
                               )
                             }
                           }
@@ -453,6 +633,7 @@ pub fn interagir_objeto(
     }
   }
 }
+
 
 pub fn alterar_acessibilidade(
   jogo: Jogo,
@@ -514,12 +695,7 @@ pub fn gastar_tempo_atual(jogo: Jogo) -> Result(Jogo, ErroJogo) {
 
         Ok(fase_atual) -> {
           let nova_fase = gastar_tempo(fase_atual)
-          let novo_jogo = salvar_fase_no_jogo(jogo, nova_fase)
-
-          case nova_fase.tempo <= 0 {
-            True -> Ok(altera_situacao(novo_jogo, Derrota))
-            False -> Ok(novo_jogo)
-          }
+          Ok(salvar_fase_no_jogo(jogo, nova_fase))
         }
       }
     }
@@ -601,8 +777,11 @@ pub fn avancar_fase(jogo: Jogo) -> Result(Jogo, ErroJogo) {
                         False -> Error(AmbienteInicialInvalido)
 
                         True -> {
+                          let jogador_limpo =
+                            jogador.reset_progresso(jogo.jogador)
+
                           let novo_jogador = jogador.mudar_local(
-                            jogo.jogador,
+                            jogador_limpo,
                             proxima_fase.ambiente_inicial,
                           )
 
@@ -627,8 +806,36 @@ pub fn avancar_fase(jogo: Jogo) -> Result(Jogo, ErroJogo) {
 
 
 fn registrar_acao(jogo: Jogo) -> Result(Jogo, ErroJogo) {
-  gastar_tempo_atual(jogo)
+  case gastar_tempo_atual(jogo) {
+    Error(erro) -> Error(erro)
+
+    Ok(novo_jogo) -> {
+      case obter_fase_atual(novo_jogo) {
+        Error(erro) -> Error(erro)
+
+        Ok(fase_atual) -> {
+          case verificar_conclusao(
+            fase_atual,
+            novo_jogo.jogador,
+          ) {
+            True -> {
+              let fase_concluida = concluir_fase(fase_atual)
+              Ok(salvar_fase_no_jogo(novo_jogo, fase_concluida))
+            }
+
+            False -> {
+              case fase_atual.tempo <= 0 {
+                True -> Ok(altera_situacao(novo_jogo, Derrota))
+                False -> Ok(novo_jogo)
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
+
 
 fn verificar_conclusao(
   fase_atual: Fase,
@@ -648,6 +855,56 @@ fn verificar_conclusao(
     _ -> False
   }
 }
+
+fn registrar_falha_interacao(
+  jogo: Jogo,
+  falha: ErroJogo,
+) -> Result(#(Jogo, ResultadoInteracao), ErroJogo) {
+  case registrar_acao(jogo) {
+    Error(erro) -> Error(erro)
+
+    Ok(novo_jogo) ->
+      Ok(#(
+        novo_jogo,
+        InteracaoComErro(falha),
+      ))
+  }
+}
+
+pub fn verificar_progresso(
+  jogo: Jogo,
+) -> Result(#(Jogo, Option(String)), ErroJogo) {
+  case obter_fase_atual(jogo) {
+    Error(erro) -> Error(erro)
+
+    Ok(fase) -> {
+      case fase.concluida {
+        False -> Ok(#(jogo, None))
+
+        True -> {
+          case avancar_fase(jogo) {
+            Error(erro) -> Error(erro)
+
+            Ok(novo_jogo) -> {
+              case novo_jogo.situacao {
+                Vitoria -> Ok(#(
+                  novo_jogo,
+                  Some("Parabens! Voce concluiu todas as fases e venceu o jogo!"),
+                ))
+
+                _ -> Ok(#(
+                  novo_jogo,
+                  Some("Fase concluida! Avancando para a proxima fase..."),
+                ))
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 
 ///
 /// fase.gleam
@@ -756,7 +1013,7 @@ fn enumera(lista: List(String), index: Int) -> List(String) {
 
 // Apresenta as informacoes gerais de um *ambi*
 pub fn explorar_ambiente(ambiente: Ambiente) -> String {
-  let obj_descricoes = list.map(ambiente.objetos, fn(obj) {objeto.examinar(obj)})
+  let obj_descricoes = list.map(ambiente.objetos, fn(obj) {examinar(obj)})
   let obj_formatados = case obj_descricoes {
     [] -> "Nenhum objeto aparente."
     _ -> " \n Objetos: " <> string.join(enumera(obj_descricoes, 1), "\n")
@@ -839,6 +1096,12 @@ pub type Estado {
   Quebrado(ferramenta: String, novo_estado: Estado)
   Coletavel
   Coletado
+  RequerItem(item: String, novo_estado: Estado)
+  DesbloqueiaAmbiente(
+    item: String,
+    ambiente: String,
+    novo_estado: Estado,
+  )
 }
 
 // Retorna a descricao de *obj* para o jogador
@@ -850,6 +1113,10 @@ pub fn examinar(obj: Objeto) -> String {
     Quebrado(_, _) -> " - Precisa ser consertado."
     Coletavel -> " - Pode ser coletado."
     Coletado -> " - Presente no inventario."
+    RequerItem(_, _) ->
+      " - Precisa de um item especifico para ser utilizado."
+    DesbloqueiaAmbiente(_, _, _) ->
+      " - Precisa de um item para desbloquear uma passagem."
   }
 }
 
